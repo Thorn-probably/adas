@@ -1,0 +1,22 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large MediaPipe Task Model Binaries (auto-downloaded by download_models.py)
+models/*.task
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE configurations
+.vscode/
+.idea/
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store

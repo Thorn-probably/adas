@@ -1,11 +1,10 @@
 """
 Clean, Executive-Grade Automotive HUD Overlay (Tesla / Mobileye Style).
-Displays Google Neural Blendshapes:
-- Eyelid Closure score (0-100%)
-- Pupil Gaze Direction (Road / Down Phone / Left / Right)
-- Jaw Opening / Yawn Accumulator
-- Sobriety Status
-- Seatbelt Status with Live Override [T] key
+Optimized for Raspberry Pi 4B (320x240 / 480x360 / 640x480).
+- Focus on the 3 core pillars: Drowsiness, Distraction, Sobriety
+- Zero flashing / strobe lights
+- Clean, calm translucent status capsules
+- Dedicated OEM alert card only when genuine safety events trigger
 """
 
 import cv2
@@ -23,38 +22,31 @@ class DMSHUDOverlay:
         h, w = frame.shape[:2]
         canvas = frame.copy()
 
-        # 1. Subtle seatbelt guideline across chest
-        if res.seatbelt_line is not None:
-            p1, p2 = res.seatbelt_line
-            if res.seatbelt_fastened:
-                cv2.line(canvas, p1, p2, (45, 200, 85), 3, cv2.LINE_AA)
-            else:
-                cv2.line(canvas, p1, p2, (40, 70, 230), 3, cv2.LINE_AA)
-
-        # 2. Sleek Top Status Bar
+        # 1. Sleek Top Status Bar
         self._draw_top_bar(canvas, res, w, fps)
 
-        # 3. Live Neural Tracking Metrics (Subtle & clean)
+        # 2. Live Neural Metrics Card
         self._draw_live_metrics(canvas, res, w, h)
 
-        # 4. Dedicated Alert Card (only appears if there is an active alarm)
+        # 3. Dedicated Alert Card (only appears if there is an active alarm)
         self._draw_alert_card(canvas, res.active_alarms, w, h)
 
-        # 5. Minimalist Footer Hotkey Bar
-        self._draw_footer(canvas, w, h, sound_enabled, res.is_simulation_mode)
+        # 4. Minimalist Footer Hotkey Bar
+        self._draw_footer(canvas, w, h, sound_enabled)
 
         return canvas
 
     def _draw_top_bar(self, canvas: np.ndarray, res: DMSFrameResult, w: int, fps: float):
-        bar_h = 44
+        bar_h = 38 if w <= 480 else 44
         overlay = canvas.copy()
         cv2.rectangle(overlay, (0, 0), (w, bar_h), (18, 20, 24), -1)
         cv2.addWeighted(overlay, 0.88, canvas, 0.12, 0, canvas)
         cv2.line(canvas, (0, bar_h), (w, bar_h), (45, 50, 58), 1)
 
         # Title
-        cv2.putText(canvas, "ADAS DMS", (16, 28),
-                    cv2.FONT_HERSHEY_DUPLEX, 0.58, (0, 215, 255), 1, cv2.LINE_AA)
+        font_scale = 0.45 if w <= 480 else 0.58
+        cv2.putText(canvas, "ADAS DMS", (12, bar_h - 14),
+                    cv2.FONT_HERSHEY_DUPLEX, font_scale, (0, 215, 255), 1, cv2.LINE_AA)
 
         badges = []
 
@@ -80,51 +72,44 @@ class DMSHUDOverlay:
         else:
             badges.append(("SOBRIETY: SOBER", (35, 155, 60), (255, 255, 255)))
 
-        # 4. Seatbelt Badge
-        sim_tag = " (SIM)" if res.is_simulation_mode else ""
-        if res.seatbelt_fastened:
-            badges.append((f"BELT: BUCKLED{sim_tag}", (35, 155, 60), (255, 255, 255)))
-        else:
-            badges.append((f"BELT: UNFASTENED{sim_tag}", (35, 35, 215), (255, 255, 255)))
-
         # Draw Badges side by side
-        badge_x = 125
+        badge_x = 90 if w <= 480 else 125
+        badge_scale = 0.32 if w <= 480 else 0.40
         for text, bg_col, txt_col in badges:
-            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.40, 1)[0]
-            bw = text_size[0] + 16
-            bh = 24
-            by = 10
+            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, badge_scale, 1)[0]
+            bw = text_size[0] + 12
+            bh = 22 if w <= 480 else 24
+            by = 8 if w <= 480 else 10
 
             cv2.rectangle(canvas, (badge_x, by), (badge_x + bw, by + bh), bg_col, -1)
             cv2.rectangle(canvas, (badge_x, by), (badge_x + bw, by + bh), (255, 255, 255), 1)
-            cv2.putText(canvas, text, (badge_x + 8, by + 16),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.40, txt_col, 1, cv2.LINE_AA)
-            badge_x += bw + 8
+            cv2.putText(canvas, text, (badge_x + 6, by + bh - 6),
+                        cv2.FONT_HERSHEY_SIMPLEX, badge_scale, txt_col, 1, cv2.LINE_AA)
+            badge_x += bw + 6
 
         # FPS on far right
-        fps_str = f"{fps:3.0f} FPS"
-        cv2.putText(canvas, fps_str, (w - 70, 28),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.46, (155, 160, 170), 1, cv2.LINE_AA)
+        fps_str = f"{fps:2.0f}FPS"
+        fps_scale = 0.38 if w <= 480 else 0.46
+        cv2.putText(canvas, fps_str, (w - (55 if w <= 480 else 68), bar_h - 14),
+                    cv2.FONT_HERSHEY_SIMPLEX, fps_scale, (155, 160, 170), 1, cv2.LINE_AA)
 
     def _draw_live_metrics(self, canvas: np.ndarray, res: DMSFrameResult, w: int, h: int):
-        # Subtle real-time neural readout card in upper-left under top bar
-        card_w = 205
-        card_h = 42
-        cx, cy = 12, 52
+        card_w = 175 if w <= 480 else 205
+        card_h = 36 if w <= 480 else 42
+        cx, cy = 8, 44 if w <= 480 else 52
         
         overlay = canvas.copy()
         cv2.rectangle(overlay, (cx, cy), (cx + card_w, cy + card_h), (18, 22, 28), -1)
         cv2.addWeighted(overlay, 0.75, canvas, 0.25, 0, canvas)
         cv2.rectangle(canvas, (cx, cy), (cx + card_w, cy + card_h), (50, 60, 75), 1)
 
-        # Line 1: Eye closure & Mouth Opening
-        cv2.putText(canvas, f"Eye Closure: {res.blink_score*100:3.0f}% | Mouth: {res.jaw_open*100:3.0f}%",
-                    (cx + 8, cy + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (210, 220, 230), 1, cv2.LINE_AA)
+        scale = 0.32 if w <= 480 else 0.38
+        cv2.putText(canvas, f"Eyes: {res.blink_score*100:2.0f}% | Mouth: {res.jaw_open*100:2.0f}%",
+                    (cx + 6, cy + (14 if w <= 480 else 18)), cv2.FONT_HERSHEY_SIMPLEX, scale, (210, 220, 230), 1, cv2.LINE_AA)
         
-        # Line 2: Gaze down & Pitch
-        gaze_str = f"Down Gaze: {res.gaze_down*100:3.0f}% | Pitch: {res.pitch:+.0f}"
-        cv2.putText(canvas, gaze_str, (cx + 8, cy + 34),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.38, (170, 180, 195), 1, cv2.LINE_AA)
+        gaze_str = f"Down Gaze: {res.gaze_down*100:2.0f}% | Pitch: {res.pitch:+.0f}"
+        cv2.putText(canvas, gaze_str, (cx + 6, cy + (28 if w <= 480 else 34)),
+                    cv2.FONT_HERSHEY_SIMPLEX, scale, (170, 180, 195), 1, cv2.LINE_AA)
 
     def _draw_alert_card(self, canvas: np.ndarray, alarms: list, w: int, h: int):
         if not alarms:
@@ -134,8 +119,7 @@ class DMSHUDOverlay:
             "MICROSLEEP": ("CRITICAL: WAKE UP - MICROSLEEP DETECTED", (30, 30, 220)),
             "DISTRACTION": ("ATTENTION: KEEP EYES ON THE ROAD", (25, 120, 225)),
             "DROWSY": ("FATIGUE ALERT: TIME FOR A BREAK", (25, 140, 215)),
-            "IMPAIRMENT": ("DRIVER IMPAIRMENT WARNING DETECTED", (130, 30, 150)),
-            "SEATBELT": ("SAFETY ALERT: PLEASE FASTEN SEATBELT", (35, 35, 210))
+            "IMPAIRMENT": ("DRIVER IMPAIRMENT WARNING DETECTED", (130, 30, 150))
         }
 
         top_alarm = alarms[0]
@@ -143,31 +127,31 @@ class DMSHUDOverlay:
             return
 
         text, bg_col = alarm_map[top_alarm]
-        card_w = min(480, int(w * 0.85))
-        card_h = 38
+        card_w = min(420, int(w * 0.90))
+        card_h = 32 if w <= 480 else 38
         cx = int((w - card_w) / 2)
-        cy = 100
+        cy = 90 if w <= 480 else 100
 
         overlay = canvas.copy()
         cv2.rectangle(overlay, (cx, cy), (cx + card_w, cy + card_h), bg_col, -1)
         cv2.addWeighted(overlay, 0.92, canvas, 0.08, 0, canvas)
         cv2.rectangle(canvas, (cx, cy), (cx + card_w, cy + card_h), (255, 255, 255), 1)
 
-        t_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, 0.50, 1)[0]
+        scale = 0.40 if w <= 480 else 0.50
+        t_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, scale, 1)[0]
         tx = cx + int((card_w - t_size[0]) / 2)
-        ty = cy + 25
-        cv2.putText(canvas, text, (tx, ty), cv2.FONT_HERSHEY_DUPLEX, 0.50, (255, 255, 255), 1, cv2.LINE_AA)
+        ty = cy + (22 if w <= 480 else 25)
+        cv2.putText(canvas, text, (tx, ty), cv2.FONT_HERSHEY_DUPLEX, scale, (255, 255, 255), 1, cv2.LINE_AA)
 
-    def _draw_footer(self, canvas: np.ndarray, w: int, h: int, sound_enabled: bool, is_sim: bool):
-        bar_h = 24
+    def _draw_footer(self, canvas: np.ndarray, w: int, h: int, sound_enabled: bool):
+        bar_h = 20 if w <= 480 else 24
         overlay = canvas.copy()
         cv2.rectangle(overlay, (0, h - bar_h), (w, h), (14, 16, 20), -1)
         cv2.addWeighted(overlay, 0.88, canvas, 0.12, 0, canvas)
         cv2.line(canvas, (0, h - bar_h), (w, h - bar_h), (35, 40, 48), 1)
 
-        seat_str = f"Seat:{self.config.DRIVER_SEAT_SIDE.upper()}"
         audio_str = f"Audio:{'ON' if sound_enabled else 'MUTE'}"
-        sim_str = "Sim:ON" if is_sim else "Sim:OFF"
-        help_str = f"[C] Posture   [S] {seat_str}   [T] {sim_str}   [B] Calib   [M] {audio_str}   [Q] Quit"
-        cv2.putText(canvas, help_str, (12, h - 7),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.38, (150, 155, 165), 1, cv2.LINE_AA)
+        help_str = f"[C] Posture   [M] {audio_str}   [Q] Quit"
+        scale = 0.32 if w <= 480 else 0.38
+        cv2.putText(canvas, help_str, (10, h - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, scale, (150, 155, 165), 1, cv2.LINE_AA)

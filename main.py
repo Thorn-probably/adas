@@ -2,10 +2,9 @@
 Main entry point for ADAS Driver Monitoring System (DMS).
 Optimized for Raspberry Pi 4B (ARM Cortex-A72) and Desktop.
 
-Monitors:
-[a] Drowsiness / Sleep (Neural Eyelid Closure, PERCLOS, Yawn Accumulator, Microsleep)
-[b] Distraction / Unfocused (Neural Pupil Gaze Vector + 3D Head Pose Pitch/Yaw)
-[c] Sobriety / Impairment (Resting Postural Tremor & Sluggish Blink Multi-Factor Fusion)
+Specialized exclusively for:
+1. Eye Detection & Openness Tracking (Eyelid closure, Eye Openness %, Blink Tracking)
+2. Drowsiness, Fatigue & Microsleep Detection (PERCLOS, Yawn Accumulation, Microsleep Alarm)
 """
 
 import sys
@@ -108,13 +107,13 @@ def main():
     print("\n" + "="*55)
     print(" ADAS DRIVER MONITORING SYSTEM (DMS) ACTIVE ")
     print("="*55)
-    print(" Active Detectors:")
-    print("   [1] Drowsiness / Sleep (Eyelid closure, PERCLOS, Yawning)")
-    print("   [2] Distraction / Unfocused (Pupil Gaze, Phone look-down)")
-    print("   [3] Sobriety / Impairment (Resting Postural Tremor)")
+    print(" Active Features:")
+    print("   [1] Eye Detection & Openness Tracking (eyeBlinkLeft/Right)")
+    print("   [2] Drowsiness & Fatigue (PERCLOS rolling average)")
+    print("   [3] Yawn Accumulator (jawOpen sustained tracking)")
+    print("   [4] Microsleep Critical Wake-Up Alarm")
     print("\n Controls:")
-    print("   'C' -> Calibrate posture baseline")
-    print("   'M' -> Mute / Unmute audio")
+    print("   'M' -> Mute / Unmute audio alerts")
     print("   'Q' or ESC -> Exit")
     print("="*55 + "\n")
 
@@ -160,9 +159,10 @@ def main():
             # Headless telemetry output or GUI render
             if config.HEADLESS:
                 if engine.frame_idx % 15 == 0:
-                    status_str = f"[{fps:2.0f} FPS] EYES: {result.drowsiness_state} | GAZE: {result.head_direction} | SOBRIETY: {result.sobriety_state}"
+                    eye_str = "CLOSED" if result.is_eye_closed else f"OPEN ({result.eye_openness*100:2.0f}%)"
+                    status_str = f"[{fps:2.0f} FPS] EYES: {eye_str} | PERCLOS: {result.perclos*100:2.0f}% | STATE: {result.drowsiness_state}"
                     if result.active_alarms:
-                        status_str += f" | ALARM: {result.active_alarms}"
+                        status_str += f" | ALARMS: {result.active_alarms}"
                     print(status_str)
             else:
                 annotated_frame = hud.render(frame, result, fps, audio.enabled)
@@ -173,9 +173,6 @@ def main():
                 if key == ord('q') or key == ord('Q') or key == 27:
                     print("[DMS] Exiting...")
                     break
-                elif key == ord('c') or key == ord('C'):
-                    engine.calibrate_baseline()
-                    print("[DMS] Posture Baseline Calibrated.")
                 elif key == ord('m') or key == ord('M'):
                     audio.set_enabled(not audio.enabled)
                     print(f"[DMS] Audio: {'ENABLED' if audio.enabled else 'MUTED'}")

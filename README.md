@@ -12,11 +12,12 @@ The system focuses exclusively on reliable, perspective-invariant ocular trackin
 
 | Metric | Mechanism | Automotive Action |
 | :--- | :--- | :--- |
-| **Eye Openness Tracking** | Google MediaPipe Neural Blendshapes (`eyeBlinkLeft`, `eyeBlinkRight`) | Live continuous measurement from `0.0` (closed) to `1.0` (wide open). Invariant to head tilts or glasses. |
-| **Eye State Classification** | Thresholded eyelid closure ($>0.50$) | `EYES: OPEN` vs `EYES: CLOSED` status badge. |
-| **Fatigue / PERCLOS** | Percentage of Eye Closure over rolling 120-frame window ($35\%$ threshold) | Detects heavy, droopy eyelids and sluggish blink durations. |
+| **Eye Openness Tracking** | Google MediaPipe Neural Blendshapes (`eyeBlinkLeft`, `eyeBlinkRight`) | Live continuous measurement from `0.0` (closed) to `1.0` (wide open). Invariant to head tilts and angles. |
+| **Eye State Classification** | Thresholded eyelid closure ($>0.50$) with elapsed duration | `EYES: OPEN` vs `EYES: CLOSED (Xs)` status badge. |
+| **Fatigue / PERCLOS** | Percentage of Eye Closure over rolling 4.0-second time window ($35\%$ threshold) | Framerate-agnostic detection of heavy eyelids and prolonged blink duration. |
 | **Yawn Accumulator** | Neural `jawOpen` ($>0.55$) sustained $\ge 0.7\text{s}$ over rolling 90s | Distinguishes yawning from talking/singing. Warns on cumulative yawns. |
-| **Microsleep Alarm** | Continuous eye closure for $\ge 36\text{ frames}$ ($\sim 1.2\text{s}$ at 30 FPS) | **CRITICAL: WAKE UP! MICROSLEEP DETECTED** audio/buzzer alarm. |
+| **Microsleep Alarm** | Continuous eye closure for $\ge 1.2\text{s}$ | **CRITICAL: WAKE UP! MICROSLEEP DETECTED** audio/buzzer alarm. |
+| **Driver Unresponsive / Slump** | Loss of face detection for $\ge 2.0\text{s}$ | **WARNING: DRIVER UNRESPONSIVE / FACE LOST** emergency alert. |
 
 ---
 

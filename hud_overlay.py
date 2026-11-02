@@ -49,21 +49,28 @@ class DMSHUDOverlay:
 
         badges = []
 
-        # Badge 1: Eye State (OPEN vs CLOSED)
+        # Badge 1: Eye State (OPEN vs CLOSED or UNRESPONSIVE)
         if not res.face_detected:
-            badges.append(("FACE: SEARCHING", (70, 75, 85), (200, 205, 215)))
+            if res.drowsiness_state == "UNRESPONSIVE":
+                badges.append(("DRIVER: UNRESPONSIVE", (30, 30, 220), (255, 255, 255)))
+            else:
+                badges.append(("FACE: SEARCHING", (70, 75, 85), (200, 205, 215)))
         elif res.is_eye_closed:
-            badges.append(("EYES: CLOSED", (35, 35, 220), (255, 255, 255)))
+            badges.append((f"EYES: CLOSED ({res.eye_closed_duration:0.1f}s)", (35, 35, 220), (255, 255, 255)))
         else:
             badges.append(("EYES: OPEN", (35, 155, 60), (255, 255, 255)))
 
         # Badge 2: Drowsiness State
         if res.drowsiness_state == "MICROSLEEP":
             badges.append(("MICROSLEEP", (30, 30, 220), (255, 255, 255)))
+        elif res.drowsiness_state == "UNRESPONSIVE":
+            badges.append(("NO FACE DETECTED", (30, 30, 220), (255, 255, 255)))
         elif "DROWSY" in res.drowsiness_state:
             badges.append((res.drowsiness_state, (30, 130, 225), (255, 255, 255)))
         elif "TIRED" in res.drowsiness_state or "FATIGUE" in res.drowsiness_state:
             badges.append((res.drowsiness_state, (25, 110, 205), (255, 255, 255)))
+        elif res.drowsiness_state == "SEARCHING":
+            badges.append(("SEARCHING", (70, 75, 85), (200, 205, 215)))
         else:
             badges.append(("ALERT", (35, 155, 60), (255, 255, 255)))
 
@@ -88,7 +95,7 @@ class DMSHUDOverlay:
                     cv2.FONT_HERSHEY_SIMPLEX, fps_scale, (155, 160, 170), 1, cv2.LINE_AA)
 
     def _draw_metrics_card(self, canvas: np.ndarray, res: DMSFrameResult, w: int, h: int):
-        card_w = 175 if w <= 480 else 210
+        card_w = 185 if w <= 480 else 225
         card_h = 44 if w <= 480 else 50
         cx, cy = 8, 44 if w <= 480 else 52
 
@@ -101,15 +108,25 @@ class DMSHUDOverlay:
         y1 = cy + (14 if w <= 480 else 18)
         y2 = cy + (28 if w <= 480 else 34)
 
-        # Line 1: Eye Openness % and Closed status
-        openness_col = (100, 240, 120) if res.eye_openness > 0.50 else (60, 80, 240)
-        cv2.putText(canvas, f"Eye Openness: {res.eye_openness*100:3.0f}%",
-                    (cx + 6, y1), cv2.FONT_HERSHEY_SIMPLEX, scale, openness_col, 1, cv2.LINE_AA)
+        if not res.face_detected:
+            lost_col = (40, 40, 240) if res.face_lost_duration >= 2.0 else (50, 180, 240)
+            cv2.putText(canvas, f"Face Lost: {res.face_lost_duration:0.1f}s",
+                        (cx + 6, y1), cv2.FONT_HERSHEY_SIMPLEX, scale, lost_col, 1, cv2.LINE_AA)
+            cv2.putText(canvas, "Status: Monitoring Road",
+                        (cx + 6, y2), cv2.FONT_HERSHEY_SIMPLEX, scale, (160, 170, 185), 1, cv2.LINE_AA)
+        else:
+            # Line 1: Eye Openness % and Closed status
+            openness_col = (100, 240, 120) if res.eye_openness > 0.50 else (60, 80, 240)
+            eye_text = f"Eye Openness: {res.eye_openness*100:3.0f}%"
+            if res.is_eye_closed:
+                eye_text += f" ({res.eye_closed_duration:0.1f}s)"
+            cv2.putText(canvas, eye_text,
+                        (cx + 6, y1), cv2.FONT_HERSHEY_SIMPLEX, scale, openness_col, 1, cv2.LINE_AA)
 
-        # Line 2: PERCLOS & Yawn metrics
-        yawn_str = f"PERCLOS: {res.perclos*100:2.0f}% | Yawns: {res.yawn_count_window}"
-        cv2.putText(canvas, yawn_str,
-                    (cx + 6, y2), cv2.FONT_HERSHEY_SIMPLEX, scale, (180, 190, 205), 1, cv2.LINE_AA)
+            # Line 2: PERCLOS & Yawn metrics
+            yawn_str = f"PERCLOS: {res.perclos*100:2.0f}% | Yawns: {res.yawn_count_window}"
+            cv2.putText(canvas, yawn_str,
+                        (cx + 6, y2), cv2.FONT_HERSHEY_SIMPLEX, scale, (180, 190, 205), 1, cv2.LINE_AA)
 
     def _draw_alert_card(self, canvas: np.ndarray, alarms: list, w: int, h: int):
         if not alarms:
@@ -117,6 +134,8 @@ class DMSHUDOverlay:
 
         alarm_map = {
             "MICROSLEEP": ("CRITICAL: WAKE UP - MICROSLEEP DETECTED", (30, 30, 220)),
+            "UNRESPONSIVE": ("WARNING: DRIVER UNRESPONSIVE / FACE LOST", (30, 30, 220)),
+            "DISTRACTION": ("WARNING: DRIVER DISTRACTED", (30, 30, 220)),
             "DROWSY": ("FATIGUE ALERT: TIME FOR A BREAK", (25, 140, 215))
         }
 
@@ -125,7 +144,7 @@ class DMSHUDOverlay:
             return
 
         text, bg_col = alarm_map[top_alarm]
-        card_w = min(420, int(w * 0.90))
+        card_w = min(440, int(w * 0.92))
         card_h = 32 if w <= 480 else 38
         cx = int((w - card_w) / 2)
         cy = 95 if w <= 480 else 105
@@ -135,7 +154,7 @@ class DMSHUDOverlay:
         cv2.addWeighted(overlay, 0.92, canvas, 0.08, 0, canvas)
         cv2.rectangle(canvas, (cx, cy), (cx + card_w, cy + card_h), (255, 255, 255), 1)
 
-        scale = 0.40 if w <= 480 else 0.50
+        scale = 0.38 if w <= 480 else 0.48
         t_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, scale, 1)[0]
         tx = cx + int((card_w - t_size[0]) / 2)
         ty = cy + (22 if w <= 480 else 25)

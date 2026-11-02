@@ -159,8 +159,11 @@ def main():
             # Headless telemetry output or GUI render
             if config.HEADLESS:
                 if engine.frame_idx % 15 == 0:
-                    eye_str = "CLOSED" if result.is_eye_closed else f"OPEN ({result.eye_openness*100:2.0f}%)"
-                    status_str = f"[{fps:2.0f} FPS] EYES: {eye_str} | PERCLOS: {result.perclos*100:2.0f}% | STATE: {result.drowsiness_state}"
+                    if not result.face_detected:
+                        status_str = f"[{fps:2.0f} FPS] FACE: SEARCHING ({result.face_lost_duration:0.1f}s) | STATE: {result.drowsiness_state}"
+                    else:
+                        eye_str = f"CLOSED ({result.eye_closed_duration:0.1f}s)" if result.is_eye_closed else f"OPEN ({result.eye_openness*100:2.0f}%)"
+                        status_str = f"[{fps:2.0f} FPS] EYES: {eye_str} | PERCLOS: {result.perclos*100:2.0f}% | STATE: {result.drowsiness_state}"
                     if result.active_alarms:
                         status_str += f" | ALARMS: {result.active_alarms}"
                     print(status_str)

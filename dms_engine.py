@@ -25,11 +25,13 @@ from config import DMSConfig
 @dataclass
 class DMSFrameResult:
     face_detected: bool = False
+    face_lost_duration: float = 0.0   # Seconds elapsed since face was lost
     
     # Eye Metrics
     blink_score: float = 0.0          # 0.0 = wide open, 1.0 = fully closed
     eye_openness: float = 1.0         # 1.0 = 100% open, 0.0 = 0% open
     is_eye_closed: bool = False
+    eye_closed_duration: float = 0.0  # Continuous eye closure time in seconds
     eye_closed_frames: int = 0
     perclos: float = 0.0              # 0.0 to 1.0 (% time eyes closed in rolling window)
     
@@ -38,7 +40,7 @@ class DMSFrameResult:
     is_yawning: bool = False
     yawn_count_window: int = 0        # Number of yawns in the last 90 seconds
     
-    # Drowsiness State: "ALERT", "TIRED", "DROWSY", "MICROSLEEP"
+    # Drowsiness State: "ALERT", "TIRED", "DROWSY", "MICROSLEEP", "SEARCHING", "UNRESPONSIVE"
     drowsiness_state: str = "ALERT"
     
     # Active alarms
@@ -60,13 +62,17 @@ class DMSEngine:
         )
         self.face_landmarker = vision.FaceLandmarker.create_from_options(face_opts)
         
-        # Temporal buffers
-        self.blink_history = deque(maxlen=self.config.PERCLOS_WINDOW_FRAMES)
+        # Temporal buffers (timestamp-based for framerate invariance)
+        self.blink_time_history = deque()
         self.recent_yawns = deque(maxlen=10)
+        
+        # Timestamps for duration tracking
+        self.eye_closed_start_time: Optional[float] = None
+        self.face_lost_start_time: Optional[float] = None
+        self.yawn_start_time: Optional[float] = None
         
         # State counters
         self.eye_closed_counter = 0
-        self.yawn_frame_counter = 0
 
     def process_frame(self, frame_bgr: np.ndarray) -> DMSFrameResult:
         self.frame_idx += 1
@@ -82,6 +88,8 @@ class DMSEngine:
         
         if face_res.face_landmarks and len(face_res.face_landmarks) > 0:
             res.face_detected = True
+            self.face_lost_start_time = None
+            res.face_lost_duration = 0.0
             
             # --- 1. EXTRACT NEURAL BLENDSHAPES ---
             bs_dict: Dict[str, float] = {}
@@ -94,33 +102,42 @@ class DMSEngine:
             res.blink_score = float((blink_l + blink_r) / 2.0)
             res.eye_openness = float(max(0.0, min(1.0, 1.0 - res.blink_score)))
             
-            # Eye closed boolean flag
+            # Eye closed boolean flag & duration
             res.is_eye_closed = res.blink_score >= self.config.BLINK_CLOSED_THRESHOLD
-            self.blink_history.append(1.0 if res.is_eye_closed else 0.0)
-            
-            # Continuous closure frame counter
             if res.is_eye_closed:
+                if self.eye_closed_start_time is None:
+                    self.eye_closed_start_time = now
+                res.eye_closed_duration = now - self.eye_closed_start_time
                 self.eye_closed_counter += 1
             else:
+                self.eye_closed_start_time = None
                 self.eye_closed_counter = 0
+                res.eye_closed_duration = 0.0
             res.eye_closed_frames = self.eye_closed_counter
 
-            # PERCLOS (% time eyes closed over rolling window)
-            if len(self.blink_history) > 10:
-                res.perclos = float(np.mean(self.blink_history))
+            # Framerate-agnostic PERCLOS (% time eyes closed over rolling window)
+            self.blink_time_history.append((now, 1.0 if res.is_eye_closed else 0.0))
+            cutoff = now - self.config.PERCLOS_WINDOW_SEC
+            while self.blink_time_history and self.blink_time_history[0][0] < cutoff:
+                self.blink_time_history.popleft()
+                
+            if len(self.blink_time_history) >= 5:
+                res.perclos = float(np.mean([val for _, val in self.blink_time_history]))
 
             # --- 3. YAWN DETECTION (jawOpen) ---
             res.jaw_open = float(bs_dict.get("jawOpen", 0.0))
             if res.jaw_open >= self.config.YAWN_JAW_THRESHOLD:
-                self.yawn_frame_counter += 1
-                # Must sustain open mouth for >= 20 frames (~0.7s) to filter out speech/smiling
-                if self.yawn_frame_counter >= self.config.YAWN_CONSEC_FRAMES:
+                if self.yawn_start_time is None:
+                    self.yawn_start_time = now
+                yawn_dur = now - self.yawn_start_time
+                # Must sustain open mouth >= YAWN_MIN_DURATION_SEC (~0.7s) to filter out speech/smiling
+                if yawn_dur >= self.config.YAWN_MIN_DURATION_SEC:
                     res.is_yawning = True
                     # Record timestamp if not already logged in last 6 seconds
                     if len(self.recent_yawns) == 0 or (now - self.recent_yawns[-1] > 6.0):
                         self.recent_yawns.append(now)
             else:
-                self.yawn_frame_counter = 0
+                self.yawn_start_time = None
 
             # Prune old yawns (> 90 seconds)
             valid_yawns = [t for t in self.recent_yawns if (now - t) <= self.config.YAWN_WINDOW_SECONDS]
@@ -128,7 +145,7 @@ class DMSEngine:
             res.yawn_count_window = len(self.recent_yawns)
 
             # --- 4. DROWSINESS STATE ARBITRATION ---
-            if res.eye_closed_frames >= self.config.MICROSLEEP_FRAMES:
+            if res.eye_closed_duration >= self.config.MICROSLEEP_DURATION_SEC:
                 res.drowsiness_state = "MICROSLEEP"
                 res.active_alarms.append("MICROSLEEP")
             elif res.perclos >= self.config.PERCLOS_DROWSY_THRESHOLD or res.yawn_count_window >= 2:
@@ -138,5 +155,23 @@ class DMSEngine:
                 res.drowsiness_state = "TIRED (1 YAWN)" if res.yawn_count_window == 1 else "MILD FATIGUE"
             else:
                 res.drowsiness_state = "ALERT"
+
+        else:
+            # Face not detected: handle driver slump / look away / passed out
+            res.face_detected = False
+            self.eye_closed_start_time = None
+            self.eye_closed_counter = 0
+            self.yawn_start_time = None
+            
+            if self.face_lost_start_time is None:
+                self.face_lost_start_time = now
+            res.face_lost_duration = now - self.face_lost_start_time
+            
+            # If face is lost for longer than timeout (e.g. 2.0s), trigger emergency alarm
+            if res.face_lost_duration >= self.config.FACE_LOST_TIMEOUT_SEC:
+                res.drowsiness_state = "UNRESPONSIVE"
+                res.active_alarms.append("UNRESPONSIVE")
+            else:
+                res.drowsiness_state = "SEARCHING"
 
         return res

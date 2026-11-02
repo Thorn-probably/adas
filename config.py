@@ -28,23 +28,27 @@ class DMSConfig:
     FACE_MODEL_URL: str = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
     
     # ==========================================
-    # EYE STATE & DROWSINESS THRESHOLDS
+    # EYE STATE & DROWSINESS THRESHOLDS (Time-based & framerate-agnostic)
     # ==========================================
     # Neural eyeBlink blendshape: 0.0 = wide open, 1.0 = fully closed
     BLINK_CLOSED_THRESHOLD: float = 0.50
     
-    # Microsleep: continuous closed eyes for >= 36 frames (~1.2s at 30 FPS) -> Immediate Alarm
-    MICROSLEEP_FRAMES: int = 36
+    # Microsleep: continuous closed eyes for >= 1.2s -> Immediate Alarm
+    MICROSLEEP_DURATION_SEC: float = 1.2
     
-    # PERCLOS (Percentage of Eye Closure over rolling 120-frame / 4-second window)
-    PERCLOS_WINDOW_FRAMES: int = 120
+    # PERCLOS (Percentage of Eye Closure over rolling 4.0-second window)
+    PERCLOS_WINDOW_SEC: float = 4.0
     PERCLOS_TIRED_THRESHOLD: float = 0.20   # 20% eye closure -> Mild fatigue
     PERCLOS_DROWSY_THRESHOLD: float = 0.35  # 35% eye closure -> Drowsiness warning
     
     # Yawn detection via neural jawOpen blendshape (0.0 = closed, 1.0 = wide open yawn)
     YAWN_JAW_THRESHOLD: float = 0.55        # Mouth opening threshold
-    YAWN_CONSEC_FRAMES: int = 20            # Sustained >= 0.7s (filters out talking and chewing)
+    YAWN_MIN_DURATION_SEC: float = 0.7      # Sustained >= 0.7s (filters out talking and chewing)
     YAWN_WINDOW_SECONDS: float = 90.0       # Tracks yawns across rolling 90 seconds
+    
+    # Driver Unresponsive / Slump / Face Lost threshold
+    # If a driver slumps down, passes out, or turns away for >= 2.0s -> Alarm
+    FACE_LOST_TIMEOUT_SEC: float = 2.0
     
     # Audio alerts
     AUDIO_ALERTS_ENABLED: bool = True

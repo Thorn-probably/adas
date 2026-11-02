@@ -103,7 +103,7 @@ class AudioAlertManager:
                     for _ in range(3):
                         self._beep(2200, 100)
                         time.sleep(0.05)
-                elif alarm_type == "DISTRACTION":
+                elif alarm_type in ("UNRESPONSIVE", "DISTRACTION"):
                     self._beep(1200, 140)
                     time.sleep(0.08)
                     self._beep(1200, 140)
